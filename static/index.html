@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Package Intelligence Hub — Proactive Communications</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        @keyframes slideIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes pulseGlow { 0%,100% { box-shadow:0 0 8px rgba(59,130,246,0.4); } 50% { box-shadow:0 0 20px rgba(59,130,246,0.8); } }
+        @keyframes fadeInScale { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }
+        .anim-slide { animation: slideIn 0.4s ease-out; }
+        .anim-pulse { animation: pulseGlow 2s infinite; }
+        .anim-pop { animation: fadeInScale 0.3s ease-out; }
+        .node-active { box-shadow: 0 0 0 3px rgba(59,130,246,0.6), 0 0 16px rgba(59,130,246,0.3); }
+        .node-completed { background: #22c55e !important; border-color: #16a34a !important; }
+        .node-active-loc { background: #3b82f6 !important; border-color: #2563eb !important; }
+        .gauge-on-track { background: linear-gradient(90deg, #22c55e 0%, #22c55e var(--pct), #334155 var(--pct)); }
+        .gauge-at-risk { background: linear-gradient(90deg, #f59e0b 0%, #f59e0b var(--pct), #334155 var(--pct)); }
+        .gauge-breached { background: linear-gradient(90deg, #ef4444 0%, #ef4444 var(--pct), #334155 var(--pct)); }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: { extend: { colors: { dark: { 900: '#0b1121', 800: '#111827', 700: '#1e293b', 600: '#334155' } } } }
+        }
+    </script>
+</head>
+<body class="bg-dark-900 text-slate-100 min-h-screen flex flex-col">
+
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<header class="bg-dark-800 border-b border-slate-700/50 px-6 py-3">
+    <div class="max-w-[1600px] mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-lg font-bold">P</div>
+            <div>
+                <h1 class="text-lg font-semibold tracking-tight">Package Intelligence Hub</h1>
+                <p class="text-xs text-slate-400">Proactive Communication Engine</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <select id="pkgSelect" class="bg-dark-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-56">
+                <option value="">Select tracking number...</option>
+            </select>
+            <button id="btnStart" onclick="startSimulation()" disabled
+                class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-lg transition flex items-center gap-2">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><polygon points="5,3 19,10 5,17"/></svg>
+                Start Simulation
+            </button>
+            <button id="btnDelay" onclick="injectDelay()" disabled
+                class="bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-lg transition flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                Inject Delay
+            </button>
+            <button onclick="resetDemo()"
+                class="bg-dark-700 hover:bg-dark-600 border border-slate-600 text-slate-300 text-sm px-4 py-2 rounded-lg transition">
+                Reset
+            </button>
+        </div>
+    </div>
+</header>
+
+<!-- ═══════════════════ PACKAGE INFO BAR ═══════════════════ -->
+<div id="infoBar" class="bg-dark-800/50 border-b border-slate-700/30 px-6 py-2 hidden">
+    <div class="max-w-[1600px] mx-auto flex items-center gap-8 text-sm">
+        <span class="text-slate-400">Customer: <strong id="infoCustomer" class="text-slate-200"></strong></span>
+        <span class="text-slate-400">Route: <strong id="infoRoute" class="text-blue-400"></strong></span>
+        <span class="text-slate-400">EDD: <strong id="infoEdd" class="text-emerald-400"></strong></span>
+        <span class="text-slate-400">Scans: <strong id="infoScans" class="text-slate-200"></strong></span>
+        <span class="text-slate-400">BLE Pings: <strong id="infoBle" class="text-slate-200"></strong></span>
+        <div class="ml-auto flex items-center gap-2">
+            <span class="text-slate-400 text-xs">EDD Risk:</span>
+            <div id="eddBadge" class="px-2 py-0.5 rounded text-xs font-semibold bg-slate-600">—</div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════ MAIN 3-COLUMN LAYOUT ═══════════════════ -->
+<main class="flex-1 flex overflow-hidden">
+    <div class="max-w-[1600px] mx-auto flex w-full gap-0">
+
+        <!-- ── LEFT: Raw Data Feed ── -->
+        <div class="w-[320px] flex-shrink-0 border-r border-slate-700/30 flex flex-col">
+            <div class="px-4 py-3 border-b border-slate-700/30 bg-dark-800/50">
+                <h2 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-blue-500" id="feedDot"></span>
+                    Raw Data Feed
+                </h2>
+                <p class="text-xs text-slate-500 mt-0.5">Scan logs & BLE pings streaming in</p>
+            </div>
+            <div id="rawFeed" class="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-2 text-xs">
+                <div class="text-slate-500 text-center py-8">Select a package and start simulation...</div>
+            </div>
+        </div>
+
+        <!-- ── CENTER: Journey Map + Milestones ── -->
+        <div class="flex-1 flex flex-col min-w-0">
+            <!-- Journey Route -->
+            <div class="px-6 py-4 border-b border-slate-700/30 bg-dark-800/30">
+                <h2 class="text-sm font-semibold text-slate-300 mb-3">Package Journey</h2>
+                <div id="journeyMap" class="flex items-center justify-center gap-0 py-2">
+                    <div class="text-slate-500 text-sm">No package selected</div>
+                </div>
+            </div>
+
+            <!-- EDD Risk Gauge -->
+            <div class="px-6 py-3 border-b border-slate-700/30 bg-dark-800/20">
+                <div class="flex items-center gap-4">
+                    <span class="text-xs text-slate-400 w-16">EDD Risk</span>
+                    <div class="flex-1 h-3 rounded-full bg-dark-600 overflow-hidden">
+                        <div id="eddGauge" class="h-full rounded-full transition-all duration-700 bg-emerald-500" style="width: 0%"></div>
+                    </div>
+                    <span id="eddLabel" class="text-xs font-medium text-slate-400 w-20 text-right">—</span>
+                </div>
+            </div>
+
+            <!-- Milestone Timeline -->
+            <div class="px-6 py-3 border-b border-slate-700/30">
+                <h2 class="text-sm font-semibold text-slate-300 mb-2">Detected Milestones</h2>
+                <div id="milestoneTimeline" class="flex flex-wrap gap-2 min-h-[40px] items-center">
+                    <span class="text-xs text-slate-500">Milestones will appear here as detected...</span>
+                </div>
+            </div>
+
+            <!-- Milestone Detail Cards -->
+            <div class="flex-1 overflow-y-auto scrollbar-thin p-6">
+                <div id="milestoneCards" class="space-y-3">
+                </div>
+            </div>
+        </div>
+
+        <!-- ── RIGHT: Communications Panel ── -->
+        <div class="w-[380px] flex-shrink-0 border-l border-slate-700/30 flex flex-col">
+            <!-- Customer Emails -->
+            <div class="flex-1 flex flex-col border-b border-slate-700/30 min-h-0">
+                <div class="px-4 py-3 border-b border-slate-700/30 bg-dark-800/50">
+                    <h2 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                        <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        Customer Emails
+                    </h2>
+                </div>
+                <div id="emailPanel" class="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-2">
+                    <div class="text-slate-500 text-xs text-center py-6">Emails will appear here...</div>
+                </div>
+            </div>
+            <!-- Ops Alerts -->
+            <div class="flex-1 flex flex-col min-h-0">
+                <div class="px-4 py-3 border-b border-slate-700/30 bg-dark-800/50">
+                    <h2 class="text-sm font-semibold text-red-400 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        Ops Team Alerts
+                    </h2>
+                </div>
+                <div id="opsPanel" class="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-2">
+                    <div class="text-slate-500 text-xs text-center py-6">Ops alerts will appear here...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- ═══════════════════ STATUS BAR ═══════════════════ -->
+<footer class="bg-dark-800 border-t border-slate-700/50 px-6 py-2">
+    <div class="max-w-[1600px] mx-auto flex items-center justify-between text-xs text-slate-500">
+        <span id="statusText">Ready</span>
+        <span>Proactive Communication Engine v1.0 — POC Demo</span>
+    </div>
+</footer>
+
+<!-- ═══════════════════ JAVASCRIPT ═══════════════════ -->
+<script>
+// ── State ──
+let eventSource = null;
+let currentPackage = null;
+let simulationActive = false;
+let visitedFacilities = new Set();
+let currentFacility = null;
+
+// ── Milestone style map ──
+const MILESTONE_STYLES = {
+    pickup_completed:  { icon: '&#10003;', bg: 'bg-emerald-500/20', border: 'border-emerald-500/50', text: 'text-emerald-400', badge: 'bg-emerald-500' },
+    hub_arrival:       { icon: '&#9679;',  bg: 'bg-blue-500/20',    border: 'border-blue-500/50',    text: 'text-blue-400',    badge: 'bg-blue-500' },
+    hub_departure:     { icon: '&#10148;', bg: 'bg-indigo-500/20',  border: 'border-indigo-500/50',  text: 'text-indigo-400',  badge: 'bg-indigo-500' },
+    out_for_delivery:  { icon: '&#128666;',bg: 'bg-violet-500/20',  border: 'border-violet-500/50',  text: 'text-violet-400',  badge: 'bg-violet-500' },
+    delivered:         { icon: '&#128230;',bg: 'bg-green-500/20',   border: 'border-green-500/50',   text: 'text-green-400',   badge: 'bg-green-500' },
+    failed_delivery:   { icon: '&#10007;', bg: 'bg-red-500/20',     border: 'border-red-500/50',     text: 'text-red-400',     badge: 'bg-red-500' },
+    delay_detected:    { icon: '&#9203;',  bg: 'bg-amber-500/20',   border: 'border-amber-500/50',   text: 'text-amber-400',   badge: 'bg-amber-500' },
+    clearance_issue:   { icon: '&#9888;',  bg: 'bg-orange-500/20',  border: 'border-orange-500/50',  text: 'text-orange-400',  badge: 'bg-orange-500' },
+    exception:         { icon: '&#9888;',  bg: 'bg-red-500/20',     border: 'border-red-500/50',     text: 'text-red-400',     badge: 'bg-red-500' },
+};
+
+// ── Initialize ──
+async function init() {
+    const resp = await fetch('/api/packages');
+    const packages = await resp.json();
+    const sel = document.getElementById('pkgSelect');
+    packages.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.tracking_number;
+        opt.textContent = `${p.tracking_number} — ${p.customer_name}`;
+        sel.appendChild(opt);
+    });
+    sel.addEventListener('change', onPackageSelect);
+}
+
+async function onPackageSelect() {
+    const tn = document.getElementById('pkgSelect').value;
+    if (!tn) return;
+    const resp = await fetch(`/api/package/${tn}`);
+    currentPackage = await resp.json();
+    document.getElementById('btnStart').disabled = false;
+    showPackageInfo();
+    buildJourneyMap();
+}
+
+function showPackageInfo() {
+    const p = currentPackage;
+    document.getElementById('infoBar').classList.remove('hidden');
+    document.getElementById('infoCustomer').textContent = p.customer.name;
+    document.getElementById('infoRoute').textContent = p.route.map(r => r.code).join(' → ');
+    document.getElementById('infoEdd').textContent = p.edd_display;
+    document.getElementById('infoScans').textContent = p.scan_count;
+    document.getElementById('infoBle').textContent = p.ble_count;
+}
+
+function buildJourneyMap() {
+    const map = document.getElementById('journeyMap');
+    const route = currentPackage.route;
+    visitedFacilities.clear();
+    currentFacility = null;
+
+    let html = '';
+    route.forEach((r, i) => {
+        html += `
+            <div class="flex flex-col items-center" id="node-${r.code}">
+                <div class="w-10 h-10 rounded-full border-2 border-slate-600 bg-dark-600 flex items-center justify-center text-xs font-bold transition-all duration-500"
+                     id="nodeDot-${r.code}">
+                    ${r.code.substring(0, 2)}
+                </div>
+                <div class="text-[10px] text-slate-400 mt-1 text-center max-w-[80px] leading-tight">${r.name}</div>
+            </div>`;
+        if (i < route.length - 1) {
+            html += `<div class="flex-1 h-0.5 bg-slate-700 mx-1 max-w-[80px] transition-all duration-500" id="line-${r.code}-${route[i+1].code}"></div>`;
+        }
+    });
+    map.innerHTML = html;
+}
+
+function updateJourneyNode(facilityCode) {
+    if (currentFacility && currentFacility !== facilityCode) {
+        const prevDot = document.getElementById(`nodeDot-${currentFacility}`);
+        if (prevDot) {
+            prevDot.classList.remove('node-active-loc', 'anim-pulse');
+            prevDot.classList.add('node-completed');
+        }
+    }
+    visitedFacilities.add(facilityCode);
+    currentFacility = facilityCode;
+    const dot = document.getElementById(`nodeDot-${facilityCode}`);
+    if (dot) {
+        dot.classList.add('node-active-loc', 'anim-pulse');
+    }
+    // Color connecting lines
+    const route = currentPackage.route;
+    for (let i = 0; i < route.length - 1; i++) {
+        if (visitedFacilities.has(route[i].code) && visitedFacilities.has(route[i+1].code)) {
+            const line = document.getElementById(`line-${route[i].code}-${route[i+1].code}`);
+            if (line) line.classList.add('bg-blue-500');
+        }
+    }
+}
+
+// ── Simulation ──
+function startSimulation() {
+    if (!currentPackage || simulationActive) return;
+    simulationActive = true;
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnDelay').disabled = false;
+    clearPanels();
+    setStatus('Simulation running...');
+
+    const tn = currentPackage.tracking_number;
+    eventSource = new EventSource(`/api/simulate/${tn}`);
+
+    eventSource.addEventListener('scan', (e) => handleScan(JSON.parse(e.data)));
+    eventSource.addEventListener('ble_batch', (e) => handleBle(JSON.parse(e.data)));
+    eventSource.addEventListener('milestone', (e) => handleMilestone(JSON.parse(e.data)));
+    eventSource.addEventListener('email', (e) => handleEmail(JSON.parse(e.data)));
+    eventSource.addEventListener('ops_alert', (e) => handleOpsAlert(JSON.parse(e.data)));
+    eventSource.addEventListener('edd_update', (e) => handleEddUpdate(JSON.parse(e.data)));
+    eventSource.addEventListener('simulation_complete', () => {
+        simulationActive = false;
+        eventSource.close();
+        eventSource = null;
+        document.getElementById('btnDelay').disabled = true;
+        document.getElementById('feedDot').classList.remove('anim-pulse');
+        setStatus('Simulation complete');
+    });
+    eventSource.addEventListener('error', () => {
+        simulationActive = false;
+        if (eventSource) eventSource.close();
+        eventSource = null;
+        setStatus('Simulation ended');
+    });
+
+    document.getElementById('feedDot').classList.add('anim-pulse');
+}
+
+async function injectDelay() {
+    if (!simulationActive || !currentPackage) return;
+    const tn = currentPackage.tracking_number;
+    document.getElementById('btnDelay').disabled = true;
+    setStatus('Injecting delay...');
+    await fetch(`/api/inject-delay/${tn}`, { method: 'POST' });
+}
+
+function resetDemo() {
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    simulationActive = false;
+    currentPackage = null;
+    visitedFacilities.clear();
+    currentFacility = null;
+    document.getElementById('pkgSelect').value = '';
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnDelay').disabled = true;
+    document.getElementById('infoBar').classList.add('hidden');
+    document.getElementById('journeyMap').innerHTML = '<div class="text-slate-500 text-sm">No package selected</div>';
+    clearPanels();
+    updateEddGauge('on_track', 0);
+    document.getElementById('eddBadge').textContent = '—';
+    document.getElementById('eddBadge').className = 'px-2 py-0.5 rounded text-xs font-semibold bg-slate-600';
+    document.getElementById('feedDot').classList.remove('anim-pulse');
+    setStatus('Ready');
+}
+
+function clearPanels() {
+    document.getElementById('rawFeed').innerHTML = '';
+    document.getElementById('milestoneTimeline').innerHTML = '';
+    document.getElementById('milestoneCards').innerHTML = '';
+    document.getElementById('emailPanel').innerHTML = '';
+    document.getElementById('opsPanel').innerHTML = '';
+}
+
+// ── Event handlers ──
+function handleScan(data) {
+    updateJourneyNode(data.location_code);
+    const feed = document.getElementById('rawFeed');
+    const div = document.createElement('div');
+    div.className = 'anim-slide bg-dark-700 border border-slate-600/30 rounded-lg p-2';
+    div.innerHTML = `
+        <div class="flex items-center gap-2 mb-1">
+            <span class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[10px] font-semibold">SCAN</span>
+            <span class="text-slate-400 text-[10px]">${data.timestamp_display}</span>
+            <span class="text-slate-300 text-[10px] font-medium ml-auto">${data.location_code}</span>
+        </div>
+        <div class="text-slate-300 text-[11px] leading-snug">${data.description}</div>`;
+    feed.prepend(div);
+}
+
+function handleBle(data) {
+    updateJourneyNode(data.facility_code);
+    const feed = document.getElementById('rawFeed');
+    const div = document.createElement('div');
+    div.className = 'anim-slide bg-dark-700/50 border border-slate-700/30 rounded-lg p-2';
+    div.innerHTML = `
+        <div class="flex items-center gap-2">
+            <span class="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 text-[10px] font-semibold">BLE</span>
+            <span class="text-slate-400 text-[10px]">${data.from_display} — ${data.to_display}</span>
+            <span class="text-slate-300 text-[10px] ml-auto">${data.facility_name}</span>
+            <span class="text-slate-500 text-[10px]">(${data.count} pings)</span>
+        </div>`;
+    feed.prepend(div);
+}
+
+function handleMilestone(data) {
+    const style = MILESTONE_STYLES[data.type] || MILESTONE_STYLES.exception;
+
+    // Timeline badge
+    const timeline = document.getElementById('milestoneTimeline');
+    if (timeline.querySelector('.text-slate-500')) timeline.innerHTML = '';
+    const badge = document.createElement('div');
+    badge.className = `anim-pop px-2.5 py-1 rounded-full text-xs font-medium text-white ${style.badge} flex items-center gap-1`;
+    badge.innerHTML = `<span>${style.icon}</span> ${data.label}`;
+    timeline.appendChild(badge);
+
+    // Detail card
+    const cards = document.getElementById('milestoneCards');
+    const card = document.createElement('div');
+    const injectedTag = data.injected ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-300 text-[10px]">INJECTED</span>' : '';
+    card.className = `anim-slide ${style.bg} border ${style.border} rounded-xl p-4`;
+    card.innerHTML = `
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-lg">${style.icon}</span>
+            <span class="font-semibold ${style.text}">${data.label}</span>
+            ${injectedTag}
+            <span class="text-slate-400 text-xs ml-auto">${data.timestamp_display}</span>
+        </div>
+        <div class="text-slate-300 text-sm mb-1">${data.location_name} (${data.location_code})</div>
+        <div class="text-slate-400 text-xs">${data.detail}</div>
+        <div class="text-slate-500 text-[10px] mt-2">Source: ${data.source.toUpperCase()}</div>`;
+    cards.prepend(card);
+}
+
+function handleEmail(data) {
+    const panel = document.getElementById('emailPanel');
+    if (panel.querySelector('.text-slate-500')) panel.innerHTML = '';
+    const style = MILESTONE_STYLES[data.milestone_type] || MILESTONE_STYLES.exception;
+    const div = document.createElement('div');
+    div.className = 'anim-slide bg-dark-700 border border-slate-600/40 rounded-xl p-3';
+    div.innerHTML = `
+        <div class="flex items-center gap-2 mb-2">
+            <div class="w-6 h-6 rounded-full ${style.badge} flex items-center justify-center text-white text-xs">${style.icon}</div>
+            <span class="text-xs font-medium text-slate-300 flex-1">${data.subject}</span>
+        </div>
+        <div class="bg-dark-800 rounded-lg p-3 text-xs text-slate-300 leading-relaxed">
+            <div class="text-slate-500 text-[10px] mb-2">To: ${data.to_name} &lt;${data.to_email}&gt;</div>
+            ${data.body}
+        </div>
+        <div class="text-[10px] text-slate-500 mt-2">${data.timestamp}</div>`;
+    panel.prepend(div);
+}
+
+function handleOpsAlert(data) {
+    const panel = document.getElementById('opsPanel');
+    if (panel.querySelector('.text-slate-500')) panel.innerHTML = '';
+    const sevColors = { critical: 'border-red-500 bg-red-500/10', high: 'border-amber-500 bg-amber-500/10', medium: 'border-yellow-500 bg-yellow-500/10' };
+    const sevBg = sevColors[data.severity] || sevColors.medium;
+    const div = document.createElement('div');
+    div.className = `anim-slide border-l-4 ${sevBg} rounded-r-xl p-3`;
+    div.innerHTML = `
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-sm">&#128680;</span>
+            <span class="text-xs font-bold text-red-400 uppercase">${data.alert_type.replace(/_/g, ' ')}</span>
+            <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                data.severity === 'critical' ? 'bg-red-500 text-white' : data.severity === 'high' ? 'bg-amber-500 text-black' : 'bg-yellow-500 text-black'
+            }">${data.severity.toUpperCase()}</span>
+        </div>
+        <div class="text-xs text-slate-300 mb-1"><strong>Location:</strong> ${data.location_name} (${data.location})</div>
+        <div class="text-xs text-slate-300 mb-1"><strong>Detail:</strong> ${data.detail}</div>
+        <div class="text-xs text-amber-300 mb-1"><strong>Action:</strong> ${data.recommended_action}</div>
+        <div class="flex items-center gap-2 mt-2">
+            <span class="text-[10px] text-slate-500">EDD Risk:</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                data.edd_risk === 'breached' ? 'bg-red-500 text-white' : data.edd_risk === 'at_risk' ? 'bg-amber-500 text-black' : 'bg-emerald-500 text-white'
+            }">${data.edd_risk.replace(/_/g, ' ').toUpperCase()}</span>
+        </div>`;
+    panel.prepend(div);
+}
+
+function handleEddUpdate(data) {
+    const risk = data.risk;
+    const badge = document.getElementById('eddBadge');
+    const gauge = document.getElementById('eddGauge');
+    const label = document.getElementById('eddLabel');
+
+    if (risk === 'on_track') {
+        badge.textContent = 'ON TRACK';
+        badge.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500 text-white';
+        gauge.className = 'h-full rounded-full transition-all duration-700 bg-emerald-500';
+        gauge.style.width = '30%';
+        label.textContent = 'On Track';
+        label.className = 'text-xs font-medium text-emerald-400 w-20 text-right';
+    } else if (risk === 'at_risk') {
+        badge.textContent = 'AT RISK';
+        badge.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-amber-500 text-black';
+        gauge.className = 'h-full rounded-full transition-all duration-700 bg-amber-500';
+        gauge.style.width = '70%';
+        label.textContent = 'At Risk';
+        label.className = 'text-xs font-medium text-amber-400 w-20 text-right';
+    } else {
+        badge.textContent = 'BREACHED';
+        badge.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-red-500 text-white';
+        gauge.className = 'h-full rounded-full transition-all duration-700 bg-red-500';
+        gauge.style.width = '100%';
+        label.textContent = 'Breached';
+        label.className = 'text-xs font-medium text-red-400 w-20 text-right';
+    }
+}
+
+function updateEddGauge(risk, pct) {
+    const gauge = document.getElementById('eddGauge');
+    gauge.style.width = pct + '%';
+}
+
+function setStatus(msg) {
+    document.getElementById('statusText').textContent = msg;
+}
+
+// Boot
+init();
+</script>
+</body>
+</html>
