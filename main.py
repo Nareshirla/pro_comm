@@ -11,12 +11,12 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import FACILITY_NAMES, SIM_EVENT_DELAY_SEC, SIM_BLE_BATCH_SIZE
-from models import MilestoneType
+from models import MilestoneType, Milestone
 from synthetic_data import generate_packages
 from milestone_engine import (
     classify_scan, detect_scan_milestones, sessionize_ble,
     detect_ble_delays, calculate_edd_risk, generate_email,
-    generate_ops_alert,
+    generate_ops_alert, check_temperature_trend,
 )
 
 app = FastAPI(title="Proactive Package Communication POC")
@@ -54,6 +54,8 @@ async def list_packages():
             "route": [{"code": r, "name": FACILITY_NAMES.get(r, r)} for r in pkg.route],
             "scan_count": len(pkg.scan_events),
             "ble_count": len(pkg.ble_events),
+            "temp_min": pkg.temp_min,
+            "temp_max": pkg.temp_max,
         })
     return result
 
@@ -76,6 +78,8 @@ async def get_package(tracking_number: str):
         "route": [{"code": r, "name": FACILITY_NAMES.get(r, r)} for r in pkg.route],
         "scan_count": len(pkg.scan_events),
         "ble_count": len(pkg.ble_events),
+        "temp_min": pkg.temp_min,
+        "temp_max": pkg.temp_max,
     }
 
 
@@ -108,6 +112,8 @@ async def _simulate_stream(tracking_number: str) -> AsyncGenerator[str, None]:
         "edd": pkg.edd.isoformat(),
         "edd_display": pkg.edd.strftime("%b %d, %Y %I:%M %p"),
         "route": [{"code": r, "name": FACILITY_NAMES.get(r, r)} for r in pkg.route],
+        "temp_min": pkg.temp_min,
+        "temp_max": pkg.temp_max,
     })
 
     await asyncio.sleep(0.5)
@@ -125,6 +131,7 @@ async def _simulate_stream(tracking_number: str) -> AsyncGenerator[str, None]:
     seen_ble = []
     detected_milestones = set()
     ble_buffer = []
+    temp_alert_fired = set()  # track which temp alert types already fired
 
     for event_type, ts, event in timeline:
         # Check for delay injection
@@ -151,7 +158,6 @@ async def _simulate_stream(tracking_number: str) -> AsyncGenerator[str, None]:
             if mtype and (mtype.value, event.location_code) not in detected_milestones:
                 detected_milestones.add((mtype.value, event.location_code))
 
-                from models import Milestone
                 milestone = Milestone(
                     tracking_number=event.tracking_number,
                     milestone_type=mtype,
@@ -205,6 +211,10 @@ async def _simulate_stream(tracking_number: str) -> AsyncGenerator[str, None]:
             ble_buffer.append(event)
 
             if len(ble_buffer) >= SIM_BLE_BATCH_SIZE:
+                # Compute avg temp for this batch
+                batch_temps = [b.temperature for b in ble_buffer]
+                avg_temp = round(sum(batch_temps) / len(batch_temps), 2)
+
                 yield _sse_event("ble_batch", {
                     "facility_code": event.facility_code,
                     "facility_name": FACILITY_NAMES.get(event.facility_code, event.facility_code),
@@ -213,9 +223,53 @@ async def _simulate_stream(tracking_number: str) -> AsyncGenerator[str, None]:
                     "to_time": ble_buffer[-1].timestamp.isoformat(),
                     "from_display": ble_buffer[0].timestamp.strftime("%b %d %H:%M:%S"),
                     "to_display": ble_buffer[-1].timestamp.strftime("%b %d %H:%M:%S"),
+                    "avg_temp": avg_temp,
+                    "temp_min": pkg.temp_min,
+                    "temp_max": pkg.temp_max,
                 })
                 ble_buffer = []
                 await asyncio.sleep(0.15)
+
+                # ── Temperature trend check ──
+                temp_mtype = check_temperature_trend(seen_ble, pkg.temp_min, pkg.temp_max)
+                if temp_mtype and temp_mtype.value not in temp_alert_fired:
+                    temp_alert_fired.add(temp_mtype.value)
+                    detected_milestones.add((temp_mtype.value, event.facility_code))
+
+                    latest_temp = seen_ble[-1].temperature
+                    limit_val = pkg.temp_max if "high" in temp_mtype.value else pkg.temp_min
+                    temp_milestone = Milestone(
+                        tracking_number=event.tracking_number,
+                        milestone_type=temp_mtype,
+                        timestamp=event.timestamp,
+                        location_code=event.facility_code,
+                        source="ble_temp",
+                        detail=f"Temperature trend alert: current {latest_temp}\u00b0C, "
+                               f"limit {limit_val}\u00b0C at "
+                               f"{FACILITY_NAMES.get(event.facility_code, event.facility_code)}.",
+                    )
+
+                    yield _sse_event("milestone", {
+                        "type": temp_mtype.value,
+                        "label": temp_mtype.value.replace("_", " ").title(),
+                        "location_code": event.facility_code,
+                        "location_name": FACILITY_NAMES.get(event.facility_code, event.facility_code),
+                        "timestamp": event.timestamp.isoformat(),
+                        "timestamp_display": event.timestamp.strftime("%b %d %H:%M"),
+                        "detail": temp_milestone.detail,
+                        "source": "ble_temp",
+                        "temp_value": latest_temp,
+                        "temp_limit": limit_val,
+                    })
+
+                    await asyncio.sleep(0.3)
+
+                    # Temperature alerts go to ops team only — no customer email
+                    ops = generate_ops_alert(temp_milestone, pkg)
+                    if ops:
+                        yield _sse_event("ops_alert", ops.model_dump())
+
+                    await asyncio.sleep(0.2)
 
     # Flush remaining BLE buffer
     if ble_buffer:
@@ -314,4 +368,4 @@ async def inject_delay(tracking_number: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

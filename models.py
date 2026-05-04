@@ -16,6 +16,10 @@ class MilestoneType(str, Enum):
     DELAY_DETECTED = "delay_detected"
     CLEARANCE_ISSUE = "clearance_issue"
     EXCEPTION = "exception"
+    TEMP_APPROACHING_HIGH = "temp_approaching_high"
+    TEMP_APPROACHING_LOW = "temp_approaching_low"
+    TEMP_BREACHED_HIGH = "temp_breached_high"
+    TEMP_BREACHED_LOW = "temp_breached_low"
 
 
 class EddRisk(str, Enum):
@@ -35,6 +39,7 @@ class BLEEvent(BaseModel):
     tracking_number: str
     timestamp: datetime
     facility_code: str
+    temperature: float = 5.0  # °C
 
 
 class DwellSession(BaseModel):
@@ -89,3 +94,5 @@ class Package(BaseModel):
     route: List[str]
     scan_events: List[ScanEvent]
     ble_events: List[BLEEvent]
+    temp_min: float = 2.0   # °C — lower limit for this shipment
+    temp_max: float = 8.0   # °C — upper limit for this shipment

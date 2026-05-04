@@ -28,10 +28,22 @@ SIM_BLE_BATCH_SIZE = 10
 # EDD risk thresholds (hours before EDD)
 EDD_RISK_WARNING_HOURS = 6
 
+# Temperature monitoring settings
+TEMP_DEFAULTS = {
+    "min_c": 2.0,           # default lower limit °C
+    "max_c": 8.0,           # default upper limit °C
+    "warn_margin_c": 1.5,   # alert when within this margin of a limit
+    "trend_window": 5,      # number of recent BLE readings to evaluate trend
+}
+
 # Milestone types that trigger ops alerts
 OPS_ALERT_MILESTONES = [
     "delay_detected",
     "clearance_issue",
     "failed_delivery",
     "exception",
+    "temp_approaching_high",
+    "temp_approaching_low",
+    "temp_breached_high",
+    "temp_breached_low",
 ]

@@ -5,12 +5,32 @@ import random
 from models import Package, ScanEvent, BLEEvent, CustomerInfo
 
 
-def _ble_pings(tracking_number: str, facility: str, start: datetime, end: datetime) -> list[BLEEvent]:
-    """Generate BLE pings every ~6 seconds between start and end."""
+def _ble_pings(
+    tracking_number: str,
+    facility: str,
+    start: datetime,
+    end: datetime,
+    temp_start: float = 5.0,
+    temp_drift_per_ping: float = 0.0,
+    temp_noise: float = 0.15,
+) -> list[BLEEvent]:
+    """Generate BLE pings every ~6 seconds between start and end.
+
+    Args:
+        temp_start: initial temperature reading (°C).
+        temp_drift_per_ping: systematic change per ping (+ve = warming, -ve = cooling).
+        temp_noise: random noise amplitude (±).
+    """
     pings = []
     t = start
+    temp = temp_start
     while t <= end:
-        pings.append(BLEEvent(tracking_number=tracking_number, timestamp=t, facility_code=facility))
+        reading = round(temp + random.uniform(-temp_noise, temp_noise), 2)
+        pings.append(BLEEvent(
+            tracking_number=tracking_number, timestamp=t,
+            facility_code=facility, temperature=reading,
+        ))
+        temp += temp_drift_per_ping
         t += timedelta(seconds=random.randint(4, 8))
     return pings
 
@@ -50,12 +70,13 @@ def generate_packages() -> dict[str, Package]:
                   description="Scan for delivery confirmation, delivery confirmed and proof recorded."),
     ]
 
+    # Package 1: stable temperature ~4-5 °C (happy path)
     ble1 = []
-    ble1 += _ble_pings(tn1, "ROANG", datetime(2026, 4, 10, 22, 0), datetime(2026, 4, 10, 22, 30))
-    ble1 += _ble_pings(tn1, "HSPA", datetime(2026, 4, 10, 22, 33), datetime(2026, 4, 10, 23, 45))
-    ble1 += _ble_pings(tn1, "MEMH", datetime(2026, 4, 11, 5, 0), datetime(2026, 4, 11, 8, 40))
-    ble1 += _ble_pings(tn1, "RDUR", datetime(2026, 4, 11, 10, 0), datetime(2026, 4, 11, 11, 0))
-    ble1 += _ble_pings(tn1, "ISOA", datetime(2026, 4, 13, 8, 35), datetime(2026, 4, 13, 10, 50))
+    ble1 += _ble_pings(tn1, "ROANG", datetime(2026, 4, 10, 22, 0), datetime(2026, 4, 10, 22, 30), temp_start=4.5)
+    ble1 += _ble_pings(tn1, "HSPA", datetime(2026, 4, 10, 22, 33), datetime(2026, 4, 10, 23, 45), temp_start=4.8)
+    ble1 += _ble_pings(tn1, "MEMH", datetime(2026, 4, 11, 5, 0), datetime(2026, 4, 11, 8, 40), temp_start=5.0)
+    ble1 += _ble_pings(tn1, "RDUR", datetime(2026, 4, 11, 10, 0), datetime(2026, 4, 11, 11, 0), temp_start=4.6)
+    ble1 += _ble_pings(tn1, "ISOA", datetime(2026, 4, 13, 8, 35), datetime(2026, 4, 13, 10, 50), temp_start=4.9)
 
     packages[tn1] = Package(
         tracking_number=tn1,
@@ -95,10 +116,12 @@ def generate_packages() -> dict[str, Package]:
                   description="Scan for delivery confirmation, delivery confirmed and proof recorded."),
     ]
 
+    # Package 2: temp slowly rises at MEMH during long dwell, approaches 8 °C limit
     ble2 = []
-    ble2 += _ble_pings(tn2, "ATLGA", datetime(2026, 4, 10, 13, 55), datetime(2026, 4, 10, 14, 45))
-    ble2 += _ble_pings(tn2, "MEMH", datetime(2026, 4, 11, 1, 55), datetime(2026, 4, 11, 14, 35))
-    ble2 += _ble_pings(tn2, "DALFW", datetime(2026, 4, 12, 5, 55), datetime(2026, 4, 12, 14, 35))
+    ble2 += _ble_pings(tn2, "ATLGA", datetime(2026, 4, 10, 13, 55), datetime(2026, 4, 10, 14, 45), temp_start=4.0)
+    ble2 += _ble_pings(tn2, "MEMH", datetime(2026, 4, 11, 1, 55), datetime(2026, 4, 11, 14, 35),
+                        temp_start=5.0, temp_drift_per_ping=0.004, temp_noise=0.1)
+    ble2 += _ble_pings(tn2, "DALFW", datetime(2026, 4, 12, 5, 55), datetime(2026, 4, 12, 14, 35), temp_start=5.5)
 
     packages[tn2] = Package(
         tracking_number=tn2,
@@ -132,10 +155,12 @@ def generate_packages() -> dict[str, Package]:
                   description="Scan for pickup exception, delivery failed recipient unavailable notice left at door."),
     ]
 
+    # Package 3: temp dips toward low limit at MIAFL (cold-chain drift downward)
     ble3 = []
-    ble3 += _ble_pings(tn3, "CHCIL", datetime(2026, 4, 10, 15, 55), datetime(2026, 4, 10, 16, 40))
-    ble3 += _ble_pings(tn3, "MEMH", datetime(2026, 4, 11, 3, 55), datetime(2026, 4, 11, 4, 35))
-    ble3 += _ble_pings(tn3, "MIAFL", datetime(2026, 4, 12, 7, 55), datetime(2026, 4, 13, 14, 5))
+    ble3 += _ble_pings(tn3, "CHCIL", datetime(2026, 4, 10, 15, 55), datetime(2026, 4, 10, 16, 40), temp_start=5.0)
+    ble3 += _ble_pings(tn3, "MEMH", datetime(2026, 4, 11, 3, 55), datetime(2026, 4, 11, 4, 35), temp_start=4.5)
+    ble3 += _ble_pings(tn3, "MIAFL", datetime(2026, 4, 12, 7, 55), datetime(2026, 4, 13, 14, 5),
+                        temp_start=4.0, temp_drift_per_ping=-0.002, temp_noise=0.1)
 
     packages[tn3] = Package(
         tracking_number=tn3,

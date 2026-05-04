@@ -1,11 +1,12 @@
 """Milestone detection engine — classifies scans, detects delays, generates communications."""
 
+import re
 from datetime import datetime, timedelta
 from models import (
     ScanEvent, BLEEvent, DwellSession, Milestone, MilestoneType,
     EddRisk, Package, EmailNotification, OpsAlert,
 )
-from config import FACILITY_NAMES, THRESHOLDS, OPS_ALERT_MILESTONES
+from config import FACILITY_NAMES, THRESHOLDS, OPS_ALERT_MILESTONES, TEMP_DEFAULTS
 
 
 # ── Scan-based milestone classification ──────────────────────────────────────
@@ -114,6 +115,54 @@ def detect_ble_delays(sessions: list[DwellSession], origin: str, destination: st
     return milestones
 
 
+# ── Temperature trend detection ──────────────────────────────────────────────
+
+def check_temperature_trend(
+    recent_ble: list[BLEEvent],
+    temp_min: float | None = None,
+    temp_max: float | None = None,
+) -> MilestoneType | None:
+    """Analyse the last *N* BLE readings for a temperature trend approaching limits.
+
+    Returns a MilestoneType if an alert should fire, else None.
+    Logic:
+      1. If the latest reading already exceeds a limit → TEMP_BREACHED_HIGH / LOW
+      2. If the latest reading is within the warning margin AND the trend over the
+         window is moving toward that limit → TEMP_APPROACHING_HIGH / LOW
+    """
+    window = TEMP_DEFAULTS["trend_window"]
+    margin = TEMP_DEFAULTS["warn_margin_c"]
+    lo = temp_min if temp_min is not None else TEMP_DEFAULTS["min_c"]
+    hi = temp_max if temp_max is not None else TEMP_DEFAULTS["max_c"]
+
+    if len(recent_ble) < window:
+        return None
+
+    temps = [e.temperature for e in recent_ble[-window:]]
+    latest = temps[-1]
+
+    # 1. Breach check
+    if latest >= hi:
+        return MilestoneType.TEMP_BREACHED_HIGH
+    if latest <= lo:
+        return MilestoneType.TEMP_BREACHED_LOW
+
+    # 2. Trend check — simple: average of first half vs second half
+    mid = len(temps) // 2
+    avg_first = sum(temps[:mid]) / mid
+    avg_second = sum(temps[mid:]) / (len(temps) - mid)
+
+    # Approaching HIGH
+    if latest >= (hi - margin) and avg_second > avg_first:
+        return MilestoneType.TEMP_APPROACHING_HIGH
+
+    # Approaching LOW
+    if latest <= (lo + margin) and avg_second < avg_first:
+        return MilestoneType.TEMP_APPROACHING_LOW
+
+    return None
+
+
 # ── EDD risk calculation ─────────────────────────────────────────────────────
 
 def calculate_edd_risk(milestones: list[Milestone], edd: datetime, now: datetime | None = None) -> EddRisk:
@@ -178,6 +227,7 @@ MILESTONE_EMAIL_TEMPLATES = {
         "body": "There is an issue with your package {tn} that requires attention. "
                 "Our team is investigating and will provide an update shortly.",
     },
+    # Temperature alerts are ops-only — no customer email templates here.
 }
 
 
@@ -190,11 +240,22 @@ def generate_email(milestone: Milestone, pkg: Package) -> EmailNotification | No
     loc_name = FACILITY_NAMES.get(milestone.location_code, milestone.location_code)
     edd_str = pkg.edd.strftime("%b %d, %Y %I:%M %p")
 
+    fmt = dict(
+        tn=pkg.tracking_number, loc_name=loc_name, edd=edd_str,
+        temp_val="", temp_limit="",
+    )
+    # Inject temp values from detail if present (format: "...current X.XX°C...limit Y.Y°C...")
+    if "current" in milestone.detail and "\u00b0C" in milestone.detail:
+        nums = re.findall(r"[\d.]+", milestone.detail)
+        if len(nums) >= 2:
+            fmt["temp_val"] = nums[0]
+            fmt["temp_limit"] = nums[1]
+
     return EmailNotification(
         to_name=pkg.customer.name,
         to_email=pkg.customer.email,
-        subject=template["subject"].format(tn=pkg.tracking_number, loc_name=loc_name, edd=edd_str),
-        body=template["body"].format(tn=pkg.tracking_number, loc_name=loc_name, edd=edd_str),
+        subject=template["subject"].format(**fmt),
+        body=template["body"].format(**fmt),
         milestone_type=milestone.milestone_type.value,
         timestamp=milestone.timestamp.isoformat(),
     )
@@ -207,6 +268,10 @@ OPS_ACTIONS = {
     MilestoneType.CLEARANCE_ISSUE: "Contact clearance desk. Verify documentation and escalate if needed.",
     MilestoneType.FAILED_DELIVERY: "Schedule redelivery attempt. Contact customer for delivery preferences.",
     MilestoneType.EXCEPTION: "Investigate exception cause. Determine if package is damaged or misrouted.",
+    MilestoneType.TEMP_APPROACHING_HIGH: "Move package to refrigerated area immediately. Verify cold-chain equipment at facility.",
+    MilestoneType.TEMP_APPROACHING_LOW: "Move package to temperature-controlled area. Check for freezer proximity or door exposure.",
+    MilestoneType.TEMP_BREACHED_HIGH: "URGENT: Isolate package. Assess product viability. Escalate to quality assurance team.",
+    MilestoneType.TEMP_BREACHED_LOW: "URGENT: Isolate package. Assess product viability. Escalate to quality assurance team.",
 }
 
 

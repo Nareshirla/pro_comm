@@ -72,6 +72,7 @@
         <span class="text-slate-400">EDD: <strong id="infoEdd" class="text-emerald-400"></strong></span>
         <span class="text-slate-400">Scans: <strong id="infoScans" class="text-slate-200"></strong></span>
         <span class="text-slate-400">BLE Pings: <strong id="infoBle" class="text-slate-200"></strong></span>
+        <span class="text-slate-400">Temp Range: <strong id="infoTemp" class="text-cyan-400"></strong></span>
         <div class="ml-auto flex items-center gap-2">
             <span class="text-slate-400 text-xs">EDD Risk:</span>
             <div id="eddBadge" class="px-2 py-0.5 rounded text-xs font-semibold bg-slate-600">—</div>
@@ -191,6 +192,10 @@ const MILESTONE_STYLES = {
     delay_detected:    { icon: '&#9203;',  bg: 'bg-amber-500/20',   border: 'border-amber-500/50',   text: 'text-amber-400',   badge: 'bg-amber-500' },
     clearance_issue:   { icon: '&#9888;',  bg: 'bg-orange-500/20',  border: 'border-orange-500/50',  text: 'text-orange-400',  badge: 'bg-orange-500' },
     exception:         { icon: '&#9888;',  bg: 'bg-red-500/20',     border: 'border-red-500/50',     text: 'text-red-400',     badge: 'bg-red-500' },
+    temp_approaching_high: { icon: '&#127777;', bg: 'bg-orange-500/20', border: 'border-orange-500/50', text: 'text-orange-400', badge: 'bg-orange-500' },
+    temp_approaching_low:  { icon: '&#10052;',  bg: 'bg-sky-500/20',    border: 'border-sky-500/50',    text: 'text-sky-400',    badge: 'bg-sky-500' },
+    temp_breached_high:    { icon: '&#128293;', bg: 'bg-red-600/20',    border: 'border-red-600/50',    text: 'text-red-500',    badge: 'bg-red-600' },
+    temp_breached_low:     { icon: '&#129398;', bg: 'bg-blue-600/20',   border: 'border-blue-600/50',   text: 'text-blue-500',   badge: 'bg-blue-600' },
 };
 
 // ── Initialize ──
@@ -225,6 +230,9 @@ function showPackageInfo() {
     document.getElementById('infoEdd').textContent = p.edd_display;
     document.getElementById('infoScans').textContent = p.scan_count;
     document.getElementById('infoBle').textContent = p.ble_count;
+    if (p.temp_min !== undefined && p.temp_max !== undefined) {
+        document.getElementById('infoTemp').textContent = `${p.temp_min}°C – ${p.temp_max}°C`;
+    }
 }
 
 function buildJourneyMap() {
@@ -372,7 +380,8 @@ function handleBle(data) {
             <span class="text-slate-400 text-[10px]">${data.from_display} — ${data.to_display}</span>
             <span class="text-slate-300 text-[10px] ml-auto">${data.facility_name}</span>
             <span class="text-slate-500 text-[10px]">(${data.count} pings)</span>
-        </div>`;
+        </div>
+        ${data.avg_temp !== undefined ? `<div class="mt-1 text-[10px]"><span class="text-slate-400">Avg Temp:</span> <span class="${data.avg_temp >= data.temp_max - 1.5 ? 'text-orange-400 font-semibold' : data.avg_temp <= data.temp_min + 1.5 ? 'text-sky-400 font-semibold' : 'text-cyan-400'}">${data.avg_temp}°C</span> <span class="text-slate-500">(${data.temp_min}–${data.temp_max}°C)</span></div>` : ''}`;
     feed.prepend(div);
 }
 
